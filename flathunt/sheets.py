@@ -7,15 +7,15 @@ from flathunt import config
 
 _SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive",  # drive (not readonly) — needed to post comment replies
 ]
 
 
 class SheetsClient:
     def __init__(self) -> None:
         if config.SERVICE_ACCOUNT_FILE:
-            gc = gspread.service_account(
-                filename=config.SERVICE_ACCOUNT_FILE,
+            creds = Credentials.from_service_account_file(
+                config.SERVICE_ACCOUNT_FILE,
                 scopes=_SCOPES,
             )
         else:
@@ -23,7 +23,8 @@ class SheetsClient:
                 config.SERVICE_ACCOUNT_INFO,
                 scopes=_SCOPES,
             )
-            gc = gspread.Client(auth=creds)
+        self._creds = creds
+        gc = gspread.Client(auth=creds)
 
         try:
             sh = gc.open(config.SPREADSHEET_NAME)
@@ -39,6 +40,16 @@ class SheetsClient:
             raise RuntimeError(
                 f"Tab '{config.SHEET_TAB}' not found in '{config.SPREADSHEET_NAME}'."
             )
+
+    @property
+    def spreadsheet_id(self) -> str:
+        """Google Drive file ID for this spreadsheet."""
+        return self._ws.spreadsheet.id
+
+    @property
+    def credentials(self) -> Credentials:
+        """Service account credentials — reuse to build Drive API client."""
+        return self._creds
 
     def get_data_rows(self) -> list[dict[str, str]]:
         """Return all data rows (skipping the header) as dicts keyed by field name.

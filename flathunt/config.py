@@ -57,6 +57,7 @@ COL: dict[str, int] = {
 }
 
 RATING_COL: int = 13
+STATUS_COL: int = 14   # N — agent writes "Ignored" here
 
 # Columns I–L must never be written under any circumstances.
 PROTECTED_COLS: frozenset[int] = frozenset({9, 10, 11, 12})
