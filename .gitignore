@@ -1,0 +1,18 @@
+# Secrets
+.env
+*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Playwright
+playwright/.auth/
+
+# OS
+.DS_Store
