@@ -67,3 +67,41 @@ class SheetsClient:
                 f"This is a programming error."
             )
         self._ws.update_cell(row, col, value)
+
+    def get_all_urls(self) -> set[str]:
+        """Return every non-empty URL already in column A (for dedup)."""
+        col_values = self._ws.col_values(config.COL["link"])
+        return {v.strip() for v in col_values if v.strip().startswith("http")}
+
+    def ensure_rating_header(self) -> None:
+        """Write 'Rating' to column M row 1 if the cell is blank or a smoke-test stamp."""
+        current = self.read_cell(config.HEADER_ROW, config.RATING_COL)
+        if not current or current.startswith("smoke-"):
+            self._ws.update_cell(config.HEADER_ROW, config.RATING_COL, "Rating")
+
+    def append_row(
+        self,
+        url: str,
+        listing: object,
+        rating: int,
+    ) -> int:
+        """Append a discovered listing as a new row and return its sheet row number.
+
+        Columns I–L are left blank (personal use). Column M gets the rating.
+        """
+        # Build a list with 13 cells (A through M).
+        row: list[str | int | float] = [""] * 13
+        row[config.COL["link"] - 1]          = url
+        row[config.COL["sqm"] - 1]           = getattr(listing, "sqm", "") or ""
+        row[config.COL["bedrooms"] - 1]      = getattr(listing, "bedrooms", "") or ""
+        row[config.COL["area"] - 1]          = getattr(listing, "area", "") or ""
+        row[config.COL["furnished"] - 1]     = getattr(listing, "furnished", "") or ""
+        row[config.COL["price_pcm"] - 1]     = getattr(listing, "price_pcm", "") or ""
+        row[config.COL["available_from"] - 1] = getattr(listing, "available_from", "") or ""
+        row[config.COL["agency"] - 1]        = getattr(listing, "agency", "") or ""
+        # Cols 9–12 (I–L) stay empty.
+        row[config.RATING_COL - 1]           = rating
+
+        self._ws.append_row(row, value_input_option="USER_ENTERED")
+        # gspread doesn't return the new row index directly; compute it.
+        return len(self._ws.col_values(1))

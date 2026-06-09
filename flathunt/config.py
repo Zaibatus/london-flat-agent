@@ -23,7 +23,7 @@ GEMINI_API_KEY: str = _require("GEMINI_API_KEY")
 SPREADSHEET_NAME: str = os.getenv("SPREADSHEET_NAME", "London flat hunt")
 SHEET_TAB: str = os.getenv("SHEET_TAB", "Flats")
 GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-SMOKE_TEST_CELL: str = os.getenv("SMOKE_TEST_CELL", "M1")
+SMOKE_TEST_CELL: str = os.getenv("SMOKE_TEST_CELL", "Z1")
 
 _sa_raw: str = _require("GOOGLE_SERVICE_ACCOUNT_JSON")
 
@@ -52,7 +52,11 @@ COL: dict[str, int] = {
     "price_pcm":     6,   # F
     "available_from": 7,  # G
     "agency":        8,   # H
+    # I–L (9–12) are personal/protected — never written
+    "rating":        13,  # M — AI quality score 1–5 (written by discover, not enrich)
 }
+
+RATING_COL: int = 13
 
 # Columns I–L must never be written under any circumstances.
 PROTECTED_COLS: frozenset[int] = frozenset({9, 10, 11, 12})

@@ -52,7 +52,9 @@ Extraction rules:
   ("part-furnished" counts as null).
 - available_from: the availability date or phrase exactly as stated
   (e.g. "Now", "Available immediately", "1 August 2025", "August 2025"). null if not stated.
-- agency: the listing agent or agency name. null if not stated.
+- agency: the listing agent or agency name. On SpareRoom this is the contact person shown
+  in the landlord/agent card (e.g. "Sevi", "Maria", "Foxtons") — use whatever name or
+  company is shown as the point of contact. null if not stated.
 
 Be conservative: if a field is not clearly stated in the text, return null.
 An empty/null field is always better than a wrong value.
@@ -62,7 +64,7 @@ An empty/null field is always better than a wrong value.
 def clean_html(html: str) -> str:
     """Strip boilerplate tags and return plain text, truncated to 6 000 chars."""
     soup = BeautifulSoup(html, "lxml")
-    for tag in soup(["script", "style", "nav", "footer", "head", "header", "aside", "noscript"]):
+    for tag in soup(["script", "style", "nav", "footer", "head", "header", "noscript"]):
         tag.decompose()
     text = soup.get_text(separator=" ", strip=True)
     text = re.sub(r"\s+", " ", text)

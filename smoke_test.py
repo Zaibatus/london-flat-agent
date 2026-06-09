@@ -72,13 +72,11 @@ def _test_gemini() -> None:
 def _test_fetch() -> None:
     import httpx
 
-    resp = httpx.get("https://httpbin.org/get", timeout=10)
-    if resp.status_code != 200:
-        raise AssertionError(f"Expected 200, got {resp.status_code}")
-    data = resp.json()
-    if "url" not in data:
-        raise AssertionError("Unexpected response shape from httpbin")
-    print(f"          GET https://httpbin.org/get → 200 OK")
+    url = "https://www.rightmove.co.uk"
+    resp = httpx.get(url, timeout=10, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
+    if resp.status_code not in range(200, 400):
+        raise AssertionError(f"Expected 2xx/3xx, got {resp.status_code}")
+    print(f"          GET {url} → {resp.status_code} OK")
 
 
 if __name__ == "__main__":
