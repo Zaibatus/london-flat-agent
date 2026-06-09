@@ -29,6 +29,7 @@ class FlatListing(BaseModel):
     sqm: float | None = None
     bedrooms: int | None = None
     area: str | None = None
+    city: str | None = None
     furnished: Literal["Yes", "No"] | None = None
     price_pcm: float | None = None
     available_from: str | None = None
@@ -48,6 +49,8 @@ Extraction rules:
 - bedrooms: number of bedrooms as an integer.
 - area: the neighbourhood, district, or borough only (e.g. "Hackney", "Clapham", "Islington").
   Not the full street address.
+- city: the city where the property is located (e.g. "London", "Cambridge", "Manchester").
+  Use "London" only if the listing is clearly in Greater London. null if unclear.
 - furnished: exactly "Yes" or "No". Set to null if it is not stated or is ambiguous
   ("part-furnished" counts as null).
 - available_from: the availability date or phrase exactly as stated

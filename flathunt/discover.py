@@ -110,6 +110,10 @@ def _search_page(offset: int) -> list[str]:
 
 def passes_filters(listing: FlatListing) -> tuple[bool, str]:
     """Return (True, "") if the listing meets criteria, else (False, reason)."""
+    # City check — must be in London.
+    if listing.city is not None and listing.city.lower() != "london":
+        return False, f"not in London (city={listing.city!r})"
+
     # Budget check (small buffer for borderline values).
     if listing.price_pcm is not None:
         if listing.price_pcm < 1_900 or listing.price_pcm > 2_600:
@@ -193,10 +197,11 @@ def run(pages: int = 5, dry_run: bool = False) -> None:
         score, notes = rate_images(images, listing_text)
 
         log.info(
-            "  price=£%s  beds=%s  area=%s  score=%d/5  %s",
+            "  price=£%s  beds=%s  area=%s  city=%s  score=%d/5  %s",
             listing.price_pcm or "?",
             listing.bedrooms or "?",
             listing.area or "?",
+            listing.city or "?",
             score,
             notes,
         )
