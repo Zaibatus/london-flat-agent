@@ -19,17 +19,19 @@ from flathunt.sheets import SheetsClient
 
 log = logging.getLogger(__name__)
 
-_AGENT_TRIGGER = "@agent"
-
-# Matches anchors like "#gid=0&range=B5:B5" — captures the first run of digits
-# (the row number) after the column letter(s).
-_ANCHOR_RE = re.compile(r"[?&#].*?range=\w*?(\d+)", re.IGNORECASE)
+# Old-style anchor like "#gid=0&range=B26:B26" — captures the row number.
+_OLD_ANCHOR_RE = re.compile(r"[?&#].*?range=\w*?(\d+)", re.IGNORECASE)
+# "row 26" or "row26" anywhere in the comment.
+_ROW_HINT_RE = re.compile(r"\brow\s*(\d+)\b", re.IGNORECASE)
+# SpareRoom flatshare_id in the comment text (user pastes a URL).
+_FLATSHARE_ID_RE = re.compile(r"flatshare_id=(\d+)")
+# Strip @email-style mentions (e.g. @user@domain.com) from request text.
+_MENTION_RE = re.compile(r"@\S+@\S+\.[\w.]+")
 
 _SYSTEM_PROMPT = """\
 You are a flat-hunting assistant embedded in a Google Sheets comment thread.
-The user has tagged a comment with "@agent". The comment refers to one row of a
-flat-listing spreadsheet. You will be shown the row data (cols A–M) and the
-comment text (everything after "@agent").
+The user has tagged a comment on a property listing. You will be shown the full row
+data (cols A–M) and the comment text.
 
 Classify the user's intent as one of four values:
   qa        — A question, feedback, or observation that can be answered from the data.
@@ -50,6 +52,13 @@ Rules:
 - Write as a helpful human assistant, not a bot.
 """
 
+_NO_ROW_REPLY = (
+    "I received your comment but couldn't determine which listing it's attached to "
+    "(Google Sheets uses an internal cell reference I can't decode). "
+    "To help me find the right row, please include the row number in your comment — "
+    "e.g. \"row 26\" or paste the SpareRoom listing URL."
+)
+
 
 class _CommentResponse(BaseModel):
     intent: Literal["qa", "re_enrich", "re_rate", "ignore"]
@@ -62,7 +71,7 @@ class _Stats:
     skipped_resolved: int = 0
     skipped_no_trigger: int = 0
     skipped_replied: int = 0
-    skipped_no_anchor: int = 0
+    no_row_found: int = 0
     processed: int = 0
     failed: int = 0
     by_intent: dict[str, int] = field(default_factory=lambda: {
@@ -70,19 +79,79 @@ class _Stats:
     })
 
 
-def _row_from_anchor(anchor: str) -> int | None:
-    """Parse a Drive comment anchor to a 1-based sheet row number."""
-    m = _ANCHOR_RE.search(anchor)
-    return int(m.group(1)) if m else None
+def _is_addressed_to_agent(comment: dict, bot_email: str) -> bool:
+    """Return True if the comment is directed at the service account."""
+    bot_lower = bot_email.lower()
+    # Explicit @mention detected by Drive API.
+    if bot_lower in [e.lower() for e in comment.get("mentionedEmailAddresses", [])]:
+        return True
+    # Assigned to the service account via @mention.
+    if comment.get("assigneeEmailAddress", "").lower() == bot_lower:
+        return True
+    # Plain-text "@agent" fallback (for comments written without the @mention UI).
+    if "@agent" in comment.get("content", "").lower():
+        return True
+    return False
 
 
 def _already_replied(comment: dict, bot_email: str) -> bool:
-    """Return True if the service account has already replied to this comment."""
+    """Return True if the service account has already replied to this comment.
+
+    Drive API sets author.me=True when the reply was made by the authenticated
+    principal (our service account). Service accounts don't get emailAddress in
+    reply author objects — only displayName — so we check me first, then fall
+    back to displayName comparison.
+    """
+    bot_lower = bot_email.lower()
     for reply in comment.get("replies", []):
-        author_email = reply.get("author", {}).get("emailAddress", "")
-        if author_email.lower() == bot_email.lower():
+        author = reply.get("author", {})
+        if author.get("me", False):
+            return True
+        # Fallback: displayName contains the email for service accounts.
+        if author.get("displayName", "").lower() == bot_lower:
             return True
     return False
+
+
+def _find_row(comment: dict, content: str, row_index: dict[int, dict]) -> int | None:
+    """Try every strategy to find which sheet row this comment belongs to.
+
+    Strategy 1: old-style Drive anchor (#gid=0&range=B26:B26)
+    Strategy 2: "row N" hint in the comment text
+    Strategy 3: SpareRoom flatshare_id URL pasted in the comment
+    """
+    anchor: str = comment.get("anchor", "")
+
+    # Strategy 1: old anchor format.
+    m = _OLD_ANCHOR_RE.search(anchor)
+    if m:
+        row = int(m.group(1))
+        if row in row_index:
+            return row
+
+    # Strategy 2: explicit row hint from the user ("row 26").
+    m = _ROW_HINT_RE.search(content)
+    if m:
+        row = int(m.group(1))
+        if row in row_index:
+            return row
+
+    # Strategy 3: SpareRoom URL in the comment text.
+    m = _FLATSHARE_ID_RE.search(content)
+    if m:
+        fid = m.group(1)
+        for row_data in row_index.values():
+            if fid in row_data.get("link", ""):
+                return row_data["_row"]
+
+    return None
+
+
+def _extract_request(content: str) -> str:
+    """Strip @mentions and the @agent trigger from the comment to get just the request."""
+    text = _MENTION_RE.sub("", content)
+    text = re.sub(r"@agent\b", "", text, flags=re.IGNORECASE)
+    return text.strip()
 
 
 def _classify_and_reply(comment_text: str, row_data: dict) -> _CommentResponse:
@@ -92,7 +161,7 @@ def _classify_and_reply(comment_text: str, row_data: dict) -> _CommentResponse:
         if k != "_row" and v
     )
     prompt = (
-        f"Comment (after @agent): {comment_text}\n\n"
+        f"User's comment: {comment_text}\n\n"
         f"Listing row data:\n{row_summary}"
     )
     client = genai.Client(api_key=config.GEMINI_API_KEY)
@@ -108,12 +177,7 @@ def _classify_and_reply(comment_text: str, row_data: dict) -> _CommentResponse:
     return _CommentResponse.model_validate_json(response.text)
 
 
-def _dispatch(
-    intent: str,
-    sheet_row: int,
-    sheet: SheetsClient,
-    row_data: dict,
-) -> None:
+def _dispatch(intent: str, sheet_row: int, sheet: SheetsClient, row_data: dict) -> None:
     """Execute the action implied by the classified intent."""
     if intent == "re_enrich":
         enrich_module.run(force=True, row=sheet_row)
@@ -130,7 +194,7 @@ def _dispatch(
             return
         img_urls = extract_image_urls(html)
         images = download_images(img_urls, max_n=5)
-        score, notes = rate_images(images, clean_html(html))
+        score, _notes = rate_images(images, clean_html(html))
         sheet.write_cell(sheet_row, config.RATING_COL, score)
         log.info("  re_rate: wrote score %d to row %d col M", score, sheet_row)
 
@@ -142,7 +206,7 @@ def _dispatch(
 
 
 def _post_reply(drive_svc, file_id: str, comment_id: str, reply_text: str) -> None:
-    drive_svc.comments().replies().create(
+    drive_svc.replies().create(
         fileId=file_id,
         commentId=comment_id,
         fields="id",
@@ -160,7 +224,13 @@ def run() -> None:
 
     result = drive_svc.comments().list(
         fileId=file_id,
-        fields="comments(id,anchor,content,resolved,replies(author/emailAddress))",
+        fields=(
+            "comments("
+            "id,anchor,content,resolved,"
+            "mentionedEmailAddresses,assigneeEmailAddress,"
+            "replies(author(me,emailAddress,displayName))"
+            ")"
+        ),
         pageSize=100,
         includeDeleted=False,
     ).execute()
@@ -180,8 +250,7 @@ def run() -> None:
             stats.skipped_resolved += 1
             continue
 
-        content: str = comment.get("content", "")
-        if _AGENT_TRIGGER not in content.lower():
+        if not _is_addressed_to_agent(comment, bot_email):
             stats.skipped_no_trigger += 1
             continue
 
@@ -190,29 +259,23 @@ def run() -> None:
             log.debug("Already replied to comment %s — skipping", comment["id"])
             continue
 
-        anchor: str = comment.get("anchor", "")
-        sheet_row = _row_from_anchor(anchor)
+        content: str = comment.get("content", "")
+        request_text = _extract_request(content)
+
+        sheet_row = _find_row(comment, content, row_index)
         if sheet_row is None:
-            log.warning("Could not parse row from anchor %r — skipping", anchor)
-            stats.skipped_no_anchor += 1
+            log.warning("Could not determine row for comment %s — sending help reply", comment["id"])
+            stats.no_row_found += 1
+            try:
+                _post_reply(drive_svc, file_id, comment["id"], _NO_ROW_REPLY)
+            except Exception as exc:
+                log.error("  Failed to post no-row reply: %s", exc)
             continue
 
-        row_data = row_index.get(sheet_row)
-        if row_data is None:
-            log.warning("Row %d not found in sheet — skipping", sheet_row)
-            stats.skipped_no_anchor += 1
-            continue
-
-        # Strip "@agent" from the start of the request text.
-        idx = content.lower().index(_AGENT_TRIGGER)
-        request_text = content[idx + len(_AGENT_TRIGGER):].strip()
-
-        log.info(
-            "── comment %s  row=%d  %r",
-            comment["id"], sheet_row, request_text[:80],
-        )
+        log.info("── comment %s  row=%d  %r", comment["id"], sheet_row, request_text[:80])
 
         try:
+            row_data = row_index[sheet_row]
             resp = _classify_and_reply(request_text, row_data)
             log.info("  intent=%s  reply=%r", resp.intent, resp.reply[:80])
             _dispatch(resp.intent, sheet_row, sheet, row_data)
@@ -233,6 +296,7 @@ def _print_summary(stats: _Stats) -> None:
     print(sep)
     print(f"  Comments fetched   : {stats.seen}")
     print(f"  Already replied    : {stats.skipped_replied}")
+    print(f"  Row not found      : {stats.no_row_found}")
     print(f"  Processed          : {stats.processed}")
     if any(stats.by_intent.values()):
         for intent, count in stats.by_intent.items():
