@@ -33,6 +33,7 @@ class FlatListing(BaseModel):
     furnished: Literal["Yes", "No"] | None = None
     price_pcm: float | None = None
     available_from: str | None = None
+    min_tenancy_months: int | None = None
     agency: str | None = None
 
 
@@ -55,6 +56,8 @@ Extraction rules:
   ("part-furnished" counts as null).
 - available_from: the availability date or phrase exactly as stated
   (e.g. "Now", "Available immediately", "1 August 2025", "August 2025"). null if not stated.
+- min_tenancy_months: minimum rental period in whole months as an integer.
+  (e.g. "6 months minimum" → 6, "short let, 1–3 months" → 1, "no minimum" → 0). null if not stated.
 - agency: the listing agent or agency name. On SpareRoom this is the contact person shown
   in the landlord/agent card (e.g. "Sevi", "Maria", "Foxtons") — use whatever name or
   company is shown as the point of contact. null if not stated.
