@@ -57,10 +57,11 @@ COL: dict[str, int] = {
 }
 
 RATING_COL: int = 13
+COMMENT_COL: int = 12  # L — human/agent provenance notes
 STATUS_COL: int = 14   # N — agent writes "Ignored" here
 
-# Columns I–L must never be written under any circumstances.
-PROTECTED_COLS: frozenset[int] = frozenset({9, 10, 11, 12})
+# Columns I–K must never be written under any circumstances.
+PROTECTED_COLS: frozenset[int] = frozenset({9, 10, 11})
 
 HEADER_ROW: int = 1
 

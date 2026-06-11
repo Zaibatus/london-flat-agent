@@ -215,7 +215,7 @@ def run(pages: int = 5, dry_run: bool = False) -> None:
         if dry_run:
             log.info("  [dry-run] would add row  rating=%d", score)
         else:
-            row_num = sheet.append_row(url, listing, score)
+            row_num = sheet.append_row(url, listing, score, comment="Added by Paolo's agent")
             log.info("  added as row %d  rating=%d", row_num, score)
 
         stats.added += 1

@@ -95,13 +95,14 @@ class SheetsClient:
         url: str,
         listing: object,
         rating: int,
+        comment: str = "",
     ) -> int:
         """Append a discovered listing as a new row and return its sheet row number.
 
-        Columns I–L are left blank (personal use). Column M gets the rating.
+        Columns I–K are left blank (protected). L gets the comment, M the rating.
         """
-        # Build a list with 13 cells (A through M).
-        row: list[str | int | float] = [""] * 13
+        # Build a list with 14 cells (A through N).
+        row: list[str | int | float] = [""] * 14
         row[config.COL["link"] - 1]          = url
         row[config.COL["sqm"] - 1]           = getattr(listing, "sqm", "") or ""
         row[config.COL["bedrooms"] - 1]      = getattr(listing, "bedrooms", "") or ""
@@ -110,8 +111,9 @@ class SheetsClient:
         row[config.COL["price_pcm"] - 1]     = getattr(listing, "price_pcm", "") or ""
         row[config.COL["available_from"] - 1] = getattr(listing, "available_from", "") or ""
         row[config.COL["agency"] - 1]        = getattr(listing, "agency", "") or ""
-        # Cols 9–12 (I–L) stay empty.
-        row[config.RATING_COL - 1]           = rating
+        # Cols 9–11 (I–K) stay empty (protected).
+        row[config.COMMENT_COL - 1]          = comment       # L
+        row[config.RATING_COL - 1]           = rating        # M
 
         self._ws.append_row(row, value_input_option="USER_ENTERED")
         # gspread doesn't return the new row index directly; compute it.
